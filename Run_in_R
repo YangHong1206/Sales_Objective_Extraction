@@ -1,0 +1,107 @@
+# Libraries----
+library(tidyverse)
+library(readxl)
+library(cols4all)#color board 色版 c4a_gui()交互界面
+library(writexl)
+library(openxlsx)
+library(reshape2)
+library(ggthemes)# select tableau color使用tableau的颜色
+library(esquisse)
+
+setwd("D:/Chrome_download") # 设定文件路径 set the duc path
+
+#data—Sources are manually renewable----
+
+target2502 <- read.xlsx("25年区域分公司目标拆分表-02月-xx分公司.xlsx", sheet = "分公司目标分解") # 设定新的excel路径 set a new excel path
+
+
+设定目标年月 <- year((today()))*100+month(today())+1 # automotively create a new year and month 创建年月
+
+ target_tded<- target2502 %>%
+  select("工号","姓名","回租新车直营.(含商用车)","二手车合计",
+         "淘车目标","新车直营.融资额(万元)",
+         "二手车直营.融资额(万元)","淘车.融资额(万元)","岗位（经理及顾问）") %>% #extract column for reordering
+  rename(二手车台 = "二手车合计",
+         二手车额 = "二手车直营.融资额(万元)",
+         新车 = "回租新车直营.(含商用车)",
+         新车额= "新车直营.融资额(万元)",
+         淘车额  = "淘车.融资额(万元)"
+         
+         ) %>% 
+  #rename( 二手车合计融资额 = X24) %>%  
+  filter( !(姓名 %in%  c("核对台次","目标","融资额","台次")),姓名 != "") 
+ 
+ 顾问目标台 <-  target_tded %>% 
+   select("工号", "姓名", "新车", "二手车台", "淘车目标") %>% 
+   rename(新车 = "新车",
+          二手车  = "二手车台", 
+          淘车 = "淘车目标") %>% 
+   gather(.,key = "目标车辆类型", 台,c(3:5))
+ 
+ 
+ 顾问目标额 <-  target_tded %>% 
+   select("工号", "姓名", "新车额", "二手车额", "淘车额") %>% 
+   rename(新车 = "新车额", 二手车  = "二手车额", 
+          淘车 = "淘车额") %>% 
+   gather(.,key = "目标车辆类型", 额,c(3:5)) %>% 
+   left_join(. , y= 顾问目标台, join_by("工号" == "工号",
+                                   "姓名" == "姓名", 
+                                   "目标车辆类型" == "目标车辆类型")) %>% 
+   mutate( "目标月" = 设定目标年月 ) %>% 
+   select("目标月" ,everything()) %>%  #将目标月放在首列
+   mutate("额" = case_when(is.na(额) ~ 0, .default = as.integer(额)*10000),
+          "台" = case_when(is.na(台) ~ 0, .default = as.integer(台))) 
+   
+顾问目标台额 <-  target_tded %>% 
+  select("工号", "姓名", "新车额", "二手车额", "淘车额","岗位（经理及顾问）") %>% 
+  rename(新车 = "新车额", 二手车  = "二手车额", 
+         淘车 = "淘车额",
+         岗位名称 = "岗位（经理及顾问）") %>% 
+  gather(.,key = "目标车辆类型", 额,c(3:5)) %>% 
+  left_join(. , y= 顾问目标台, join_by("工号" == "工号",
+                                  "姓名" == "姓名", 
+                                  "目标车辆类型" == "目标车辆类型")) %>% 
+  mutate( "目标月" = 设定目标年月 ) %>% 
+  select("目标月" ,everything()) %>%  #将目标月放在首列
+  mutate("融资额" = case_when(is.na(额) ~ 0, .default = as.integer(额)*10000),
+         "单量" = case_when(is.na(台) ~ 0, .default = as.integer(台)),
+         "年" = substr(目标月, 1, 4),
+         "月" = substr(目标月, 5, 6)
+           ) %>% 
+
+  gather(key = "*指标类型",
+         value = "*指标量",
+         融资额,单量
+         ) %>% 
+  select("工号", "姓名", "岗位名称", "目标车辆类型", `*指标类型`, "年", "月",`*指标量`) %>% 
+  
+  filter(!岗位名称  %in%  c("金融经理","二手车金融经理") & #不包含 岗位名称为经理的
+           目标车辆类型 != "淘车") %>% 
+  mutate("*大区" = "华东区",
+         "*分公司名称" = "xx分公司", # rename the name of Branch
+         "*岗位角色" = "金融顾问",
+         "*业务部门" = "销售部",
+         "*业务类型" = "消费融",
+         "*渠道类型" = "直营",
+         "业务拓展属性" = "",
+         "直营拓展属性" = "",
+         "代理商拓展属性" = "",
+         "租赁属性" = "",
+         "资金来源" = "",
+         "店面编码" = "",
+         "*年份" = ifelse( month(today()) == 12, year(today())+1 , year(today())),
+         "*月份" = ifelse( month(today()) == 12, 01 , month(today())+1)
+         ) %>% 
+  select("*大区","*分公司名称","工号","姓名","*岗位角色","岗位名称","*业务部门","*业务类型","*渠道类型","目标车辆类型"
+         ,"业务拓展属性","直营拓展属性","代理商拓展属性",	"租赁属性","资金来源"	,"店面编码", "*指标类型","*年份","*月份","*指标量") %>% 
+  na.omit()
+  
+
+multi_sheets = list("顾问目标额" = 顾问目标额,
+                    "顾问目标台额(不需要淘车数据)" = 顾问目标台额)
+
+
+write_xlsx(multi_sheets,"D:/Chrome_download/消费融目标(R源).xlsx") #set the path of output.
+
+
+#Automobile_Monthly_Sales_Data <- read.csv("D:/Chrome_download/China Automobile Sales Data.csv/China Automobile Sales Data.csv")
